@@ -7,7 +7,9 @@
   const ENDPOINTS_WITH_REASONING = [
     "https://openrouter.ai/api/v1/chat/completions",
     "https://api.minimax.chat/v1/text/chatcompletion",
-    "https://llm.chutes.ai/v1/chat/completions"
+    "https://llm.chutes.ai/v1/chat/completions",
+    "https://nano-gpt.com/api/v1/chat/completions",
+    "https://nano-gpt.com/api/v1legacy/chat/completions"
   ];
 
   // In-memory reasoning cache
@@ -21,7 +23,7 @@
     });
 
   /**************************************************************
-   * 2️⃣  Capture reasoning_details from BOTH streaming & non-streaming responses
+   * 2️⃣  Capture reasoning_details and reasoning from BOTH streaming & non-streaming responses
    **************************************************************/
   const origFetch = window.fetch;
   window.fetch = async (...args) => {
@@ -42,16 +44,18 @@
           let buffer = "";
           let currentId = null;
           let currentModel = null;
-          let collectedReasoning = [];
+          let collectedReasoningDetails = [];
+          let collectedReasoning = "";
 
           const read = async () => {
             const { done, value } = await reader.read();
             if (done) {
               // Save reasoning at the end
-              if (currentId && collectedReasoning.length) {
+              if (currentId && (collectedReasoningDetails.length || collectedReasoning)) {
                 reasoningCache.set(currentId, {
                   model: currentModel,
-                  reasoning_details: collectedReasoning,
+                  reasoning_details: collectedReasoningDetails,
+                  reasoning: collectedReasoning,
                   structuralKey: makeCompoundKey({
                     response_id: currentId,
                     content: "",
@@ -60,7 +64,8 @@
                 });
                 console.log(
                   `💾 Cached (stream) reasoning for ${currentId}`,
-                  collectedReasoning.length
+                  collectedReasoningDetails.length,
+                  collectedReasoning ? `+ ${collectedReasoning.length} chars reasoning` : ""
                 );
               }
               controller.close();
@@ -84,7 +89,12 @@
                 currentModel = data?.model || currentModel;
 
                 if (delta?.reasoning_details?.length) {
-                  collectedReasoning.push(...delta.reasoning_details);
+                  collectedReasoningDetails.push(...delta.reasoning_details);
+                }
+                
+                // Handle reasoning field (same logic as reasoning_content)
+                if (delta?.reasoning) {
+                  collectedReasoning += delta.reasoning;
                 }
               } catch (err) {
                 console.warn("Stream parse error:", err);
@@ -105,25 +115,29 @@
     try {
       const clone = resp.clone();
       const json = await clone.json();
+      const message = json?.choices?.[0]?.message;
 
-      if (json?.choices?.[0]?.message?.reasoning_details?.length) {
+      if (message && (message?.reasoning_details?.length || message?.reasoning)) {
         const id = json.id;
         const model = json.model;
-        const reasoning_details = json.choices[0].message.reasoning_details;
+        const reasoning_details = message.reasoning_details || [];
+        const reasoning = message.reasoning || "";
 
         reasoningCache.set(id, {
           model,
           reasoning_details,
+          reasoning,
           structuralKey: makeCompoundKey({
             response_id: id,
-            content: json.choices[0].message.content || "",
-            tool_calls: json.choices[0].message.tool_calls || [],
+            content: message.content || "",
+            tool_calls: message.tool_calls || [],
           }),
         });
 
         console.log(
           `💾 Cached (non-stream) reasoning for ${id}`,
-          reasoning_details.length
+          reasoning_details.length,
+          reasoning ? `+ ${reasoning.length} chars reasoning` : ""
         );
       }
     } catch (err) {
@@ -134,7 +148,7 @@
   };
 
   /**************************************************************
-   * 3️⃣  Inject reasoning_details into next outgoing request
+   * 3️⃣  Inject reasoning_details and reasoning into next outgoing request
    **************************************************************/
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (body) {
@@ -161,10 +175,21 @@
             }
           }
 
-          if (cached?.reasoning_details?.length) {
-            prevAssistant.reasoning_details = cached.reasoning_details;
+          if (cached) {
+            // Inject reasoning_details if present
+            if (cached?.reasoning_details?.length) {
+              prevAssistant.reasoning_details = cached.reasoning_details;
+            }
+            
+            // Inject reasoning if present (same logic as reasoning_content)
+            if (cached?.reasoning) {
+              prevAssistant.reasoning = cached.reasoning;
+            }
+            
             console.log(
-              `🧩 Injected reasoning (${cached.reasoning_details.length} items) for model ${model}`
+              `🧩 Injected reasoning for model ${model}`,
+              cached.reasoning_details?.length ? `(${cached.reasoning_details.length} details)` : "",
+              cached.reasoning ? `+ ${cached.reasoning.length} chars reasoning` : ""
             );
           }
         }
