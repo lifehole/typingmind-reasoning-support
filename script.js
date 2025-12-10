@@ -9,7 +9,7 @@ window.__reasoningExtensionActive = true;
 
 (() => {
     console.log("🧠 Debug Streaming Extension active");
-    const DEBUG_MODE = true;
+    const DEBUG_MODE = false;
     
     const ENDPOINTS_WITH_REASONING = [
         "https://openrouter.ai/api/v1/chat/completions",
