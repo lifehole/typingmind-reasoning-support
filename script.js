@@ -13,7 +13,7 @@ window.__reasoningExtensionActive = true;
     
     const ENDPOINTS_WITH_REASONING = [
         "https://openrouter.ai/api/v1/chat/completions",
-        "https://api.minimax.chat/v1/text/chatcompletion",
+        "https://4risu-priv.org/kharkov1992/chat/completions",
         "https://llm.chutes.ai/v1/chat/completions",
         "https://nano-gpt.com/api/v1/chat/completions",
         "https://nano-gpt.com/api/v1legacy/chat/completions"
